@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Career Refinement Chatbot Test</title>
+    <style>
+        /* Basic styling for chat interface */
+        #chat-container {
+            width: 100%;
+            max-width: 500px;
+            margin: auto;
+            font-family: Arial, sans-serif;
+        }
+        #chat-box {
+            height: 400px;
+            overflow-y: scroll;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            background-color: #f9f9f9;
+            margin-bottom: 10px;
+        }
+        .message {
+            margin-bottom: 10px;
+        }
+        .user {
+            text-align: right;
+        }
+        .bot {
+            text-align: left;
+        }
+        .user .text {
+            background-color: #dcf8c6;
+            color: #333;
+        }
+        .bot .text {
+            background-color: #ececec;
+            color: #333;
+        }
+        .text {
+            display: inline-block;
+            padding: 10px;
+            border-radius: 8px;
+            max-width: 80%;
+        }
+        #user-input {
+            width: 80%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            margin-right: 1%;
+        }
+        #send-btn {
+            width: 18%;
+            padding: 10px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        #send-btn:hover {
+            background-color: #218838;
+        }
+    </style>
+</head>
+<body>
+
+<div id="chat-container">
+    <div id="chat-box"></div>
+    <input type="text" id="user-input" placeholder="Type your answer here..." autofocus />
+    <button id="send-btn">Send</button>
+</div>
+
+<script>
+    const chatBox = document.getElementById('chat-box');
+    const userInput = document.getElementById('user-input');
+    const sendBtn = document.getElementById('send-btn');
+
+    // Display a message in the chat box
+    function displayMessage(text, sender) {
+        const messageDiv = document.createElement('div');
+        messageDiv.classList.add('message', sender);
+        
+        const textDiv = document.createElement('div');
+        textDiv.classList.add('text');
+        textDiv.innerText = text;
+        
+        messageDiv.appendChild(textDiv);
+        chatBox.appendChild(messageDiv);
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    // Send user response to the backend and get the next question
+    async function getNextQuestion(response) {
+        try {
+            const res = await fetch('http://127.0.0.1:8000/next-question', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ response })
+            });
+            if (!res.ok) throw new Error(`Server error: ${res.status}`);
+            const data = await res.json();
+            return data.question || data.message;
+        } catch (error) {
+            displayMessage("Error: Unable to fetch the next question.", 'bot');
+            console.error("Error fetching question:", error);
+        }
+    }
+
+    // Fetch career suggestions from the backend
+    async function fetchCareerSuggestions() {
+        try {
+            const res = await fetch('http://127.0.0.1:8000/suggest-careers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            if (!res.ok) throw new Error(`Server error: ${res.status}`);
+            return await res.json();
+        } catch (error) {
+            displayMessage("Error: Unable to fetch career suggestions.", 'bot');
+            console.error("Error fetching career suggestions:", error);
+        }
+    }
+
+    // Display career suggestions in the chat box
+    function displaySuggestions(data) {
+        let suggestionText = 'Based on your responses, here are some career suggestions:\n';
+        data.titles.forEach((title, index) => {
+            suggestionText += `\n• ${title}: ${data.descriptions[index]}`;
+        });
+        displayMessage(suggestionText, 'bot');
+    }
+
+    // Handle user input and manage conversation flow
+    async function handleUserInput() {
+        const input = userInput.value.trim();
+        if (!input) return;
+
+        // Display user message
+        displayMessage(input, 'user');
+        userInput.value = '';
+
+        // Get next question or career suggestions based on responses
+        const nextQuestion = await getNextQuestion(input);
+        if (nextQuestion && nextQuestion !== "You've completed the questions!") {
+            displayMessage(nextQuestion, 'bot');
+        } else if (nextQuestion === "You've completed the questions!") {
+            const careerData = await fetchCareerSuggestions();
+            if (careerData) displaySuggestions(careerData);
+        }
+    }
+
+    // Set up event listeners
+    sendBtn.addEventListener('click', handleUserInput);
+    userInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') handleUserInput();
+    });
+
+    // Initial greeting
+    window.onload = () => {
+        displayMessage("Hello! I am your Career Refinement Assistant. Let's get started.", "bot");
+    };
+</script>
+
+</body>
+</html>
