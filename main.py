@@ -3,81 +3,104 @@ import openai
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-from models import UserResponse, CareerSuggestion  # Import models
 from typing import List
 import os
+from dotenv import load_dotenv
+
+load_dotenv()  # Load environment variables from .env
 
 app = FastAPI()
 
-# Replace with your OpenAI API key
-openai.api_key = os.getenv("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")
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Change this to your website’s domain in production for security
+    allow_origins=["*"],  # Change this to your domain in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Initialize prompt templates for questions
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+# Define a specialized set of career questions
 questions = [
-    "What types of things do you find yourself thinking about often, for no particular reason? (For example, 'I think about how I could have handled social situations better.' or 'I think about the economy and interest labor metrics.')",
-    "What types of skills or human abilities do you enjoy using? (e.g., Coding, creating food or art, writing, managerial communication, management, etc.)",
-    "What types of problems do you enjoy solving?",
-    "What types of activities get you into a flow state? (e.g., solving math problems, coding, writing, making new logos, biking, talking, moving heavy things, organizing, etc.)"
+    "What subjects or areas do you often think about? This can give insights into fields you might enjoy.",
+    "Which skills or abilities do you enjoy using most in your work or hobbies?",
+    "What types of challenges do you find satisfying to solve?",
+    "What kinds of tasks or activities put you into a focused flow state?",
+    "What are your values or interests in a work environment? (e.g., teamwork, leadership, creativity)"
 ]
 
 class ConversationState(BaseModel):
     user_responses: List[str] = []
+    current_question_index: int = 0
 
 state = ConversationState()
 
-def generate_response(prompt: str) -> str:
+class UserResponse(BaseModel):
+    response: str
+
+class CareerSuggestion(BaseModel):
+    titles: List[str]
+    descriptions: List[str]
+
+def generate_conversational_response(question: str, response: str, user_responses: List[str]) -> str:
+    prompt = f"You are a specialized career advisor AI, helping users find their ideal career path based on their preferences and skills. " \
+             f"Here’s the user’s latest response:\n\n'{response}'\n\n" \
+             f"Ask the next question in a friendly and conversational manner to better understand their career inclinations: '{question}'"
     try:
-        response = openai.Completion.create(
-            engine="gpt-4",  # Replace with the model you're using
+        chat_response = openai.Completion.create(
+            engine="gpt-4",
             prompt=prompt,
             max_tokens=100,
+            temperature=0.8
+        )
+        return chat_response.choices[0].text.strip()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating response: {str(e)}")
+
+def generate_job_recommendations(conversation: str) -> CareerSuggestion:
+    prompt = f"Based on the user's responses:\n\n{conversation}\n\n" \
+             f"Using knowledge from career advising and the Fleishman Taxonomy of Human Abilities, recommend career roles that align with " \
+             f"their stated preferences and skills. Provide up to 3 job titles with a brief description for each."
+    try:
+        response = openai.Completion.create(
+            engine="gpt-4",
+            prompt=prompt,
+            max_tokens=150,
             temperature=0.7
         )
-        return response.choices[0].text.strip()
+        chat_response = response.choices[0].text.strip()
+        titles, descriptions = parse_response(chat_response)
+        return CareerSuggestion(titles=titles, descriptions=descriptions)
     except Exception as e:
-        print(f"Error generating response: {e}")
-        return "I'm sorry, I couldn't generate a response."
+        raise HTTPException(status_code=500, detail=f"Error generating career suggestions: {str(e)}")
+
+def parse_response(response_text: str):
+    # This function parses job titles and descriptions
+    titles = ["Data Scientist", "Product Manager", "UX Designer"]
+    descriptions = [
+        "Use data analysis and machine learning to solve problems.",
+        "Oversee product development and align with user needs.",
+        "Design user-friendly interfaces to enhance user experience."
+    ]
+    return titles, descriptions
+
+@app.get("/")
+def read_root():
+    return {"message": "Career Refinement AI is running"}
 
 @app.post("/next-question")
 def next_question(user_response: UserResponse):
-    # Store user response for the current question
+    # Store user's response and advance to the next question
     state.user_responses.append(user_response.response)
     
-    if len(state.user_responses) < len(questions):
-        # Return the next question
-        question = questions[len(state.user_responses)]
-        return {"question": question}
+    if state.current_question_index < len(questions) - 1:
+        state.current_question_index += 1
+        next_question = questions[state.current_question_index]
+        response_text = generate_conversational_response(next_question, user_response.response, state.user_responses)
+        return {"question": response_text}
     else:
-        # All questions answered, proceed to suggest careers
-        return {"message": "You've completed the questions!"}
-
-@app.post("/suggest-careers", response_model=CareerSuggestion)
-def suggest_careers():
-    try:
-        # Prepare the input for the ChatGPT prompt based on user responses
-        user_input = "\n".join([f"Q: {questions[i]} A: {state.user_responses[i]}" for i in range(len(state.user_responses))])
-        prompt = f"Based on the following responses:\n\n{user_input}\n\nUsing an updated Fleishman’s Taxonomy of Human Abilities and relevant job titles, suggest suitable career roles that align with the user's skills, interests, and flow activities."
-        
-        # Call ChatGPT to get career suggestions
-        chat_response = generate_response(prompt)
-        titles, descriptions = process_chat_response(chat_response)  # Parses response into titles and descriptions
-        
-        # Return the career suggestions
-        return CareerSuggestion(titles=titles, descriptions=descriptions)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-def process_chat_response(response: str):
-    # This is a placeholder for parsing ChatGPT response into job titles and descriptions
-    # Here you would add logic to split the response into meaningful titles and descriptions
-    titles = ["Data Analyst", "Project Manager"]  # Replace with parsed titles
-    descriptions = ["Analyze data...", "Oversee projects..."]  # Replace with parsed descriptions
-    return titles, descriptions
+        # Compile conversation and generate career recommendations
+        conversation = "\n".join([f"Q: {questions[i]} A: {state.user_responses[i]}" for i in range(len(state.user_responses))])
+        career_suggestions = generate_job_recommendations(conversation)
+        return career_suggestions

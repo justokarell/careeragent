@@ -1,3 +1,6 @@
-fastapi
-uvicorn
-openai
+fastapi                 # Main framework for the API
+uvicorn                 # ASGI server to run the FastAPI application
+openai                  # OpenAI's Python library to integrate with GPT-4/ChatGPT
+python-dotenv           # Load environment variables from .env file
+pydantic                # Data validation and parsing, used in FastAPI
+typing-extensions       # Provides support for additional type hints
